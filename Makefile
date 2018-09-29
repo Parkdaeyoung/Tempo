@@ -22,7 +22,7 @@ CLANGLIBS = \
 		   	$(shell llvm-config --libs)\
 			$(shell llvm-config --system-libs)
 
-all: CodeTransform
+all: Frontend
 
 rewritersample: rewritersample.cpp
 	$(CXX) $^.cpp $(CFLAGS) -o $@ $(CLANG_BUILD_FLAGS) $(CLANGLIBS)
@@ -30,7 +30,7 @@ rewritersample: rewritersample.cpp
 transformer: transformer.cpp
 	$(CXX) $^.cpp $(CFLAGS) -o $@ $(CLANG_BUILD_FLAGS) $(CLANGLIBS)
 
-CodeTransform: CodeTransform.cpp OMPRewriter.h
+Frontend: Frontend.cpp OMPRewriter.h
 	$(CXX) $< $(CFLAGS) -o $@ $(CLANG_BUILD_FLAGS) $(CLANGLIBS)
 
 GetRange: GetRange.cpp

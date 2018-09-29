@@ -19,76 +19,6 @@
 using namespace clang;
 using namespace std;
 
-//class CompoundVisitor : public RecursiveASTVisitor<CompoundVisitor>
-//{
-//	public:
-//		CompoundVisitor(CompilerInstance &CI): CI_(CI) {}
-//
-//		bool shouldTraversePostOrder() const {
-//			return true;
-//		}
-//
-//		bool VisitOMPExecutableDirective(OMPExecutableDirective *D) {
-//			Stmt *CapturedStmt = D->getInnermostCapturedStmt()->getCapturedStmt();
-//
-//			if (CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(CapturedStmt)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//			return true;
-//		}
-//
-//		bool VisitForStmt(ForStmt *S) {
-//			Stmt *Body = S->getBody();
-//
-//			if (CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(Body)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//
-//			return true;
-//		}
-//
-//		bool VisitIfStmt(IfStmt *S) {
-//			Stmt *Then = S->getThen();
-//			Stmt *Else = S->getElse();
-//
-//			if (Then && CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(Then)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//
-//			if (Else && CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(Else)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//			return true;
-//		}
-//
-//		bool VisitDoStmt(DoStmt *S) {
-//			Stmt *Body = S->getBody();
-//
-//			if (CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(Body)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//			return true;
-//		}
-//
-//		bool VisitWhileStmt(WhileStmt *S) {
-//			Stmt *Body = S->getBody();
-//
-//			if (CompoundStmt *CompStmt = dyn_cast<CompoundStmt>(Body)) {
-//			} else {
-//				// Add compound Stmt
-//			}
-//			return true;
-//		}
-//
-//	private:
-//		CompilerInstance &CI;
-//};
-
 class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 {
 	public:
@@ -97,10 +27,6 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 		/*
 		 * See OpenMP 4.5 Specification for more information
 		 */
-
-//		bool shouldTraversePostOrder() const {
-//			return true;
-//		}
 
 		//-------------------------------------------------------------------------//
 		// Parallel Construct
@@ -241,7 +167,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 *		use_device_ptr(list)
 			 *
 			 */
-			Rewriter_.TransformExecutableDirectiveOfTarget(D);
+			Rewriter_.RewriteTargetDataDirective(D);
 			return true;
 		}
 
@@ -290,8 +216,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 * 		depend(dependence-type: list)
 			 *
 			 */
-			Rewriter_.CommentExecutableDirective(D);
-			Rewriter_.TransformExecutableDirectiveOfTarget(D);
+			Rewriter_.RewriteTargetDirective(D);
 			return true;
 		}
 
@@ -343,8 +268,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 * NOTE: orphaned-teams region is not allowed in Clang (See OpenMP 4.5 Specification-2.10.7)
 			 *
 			 */
-			Rewriter_.CommentExecutableDirective(D);
-			Rewriter_.TransformExecutableDirectiveOfTeams(D);
+			Rewriter_.RewriteTeamsDirective(D);
 			return true;
 		}
 
@@ -360,8 +284,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 * 		collapse(n)
 			 * 		dist_schedule(kind[, chunk_size])
 			 */
-			Rewriter_.CommentExecutableDirective(D);
-			Rewriter_.TransformExecutableDirectiveOfDistribute(D);
+			Rewriter_.RewriteDistributeDirective(D);
 			return true;
 		}
 
@@ -393,6 +316,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			//			ss << "\n}\n";
 			//
 
+			Rewriter_.RewriteDistributeParallelForDirective(D);
 			return true;
 		}
 
@@ -470,9 +394,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 * clause:
 			 * 		any of the clauses accepted by the 'target' or 'teams' directives
 			 */ 
-			Rewriter_.CommentExecutableDirective(D);
-			Rewriter_.TransformExecutableDirectiveOfTarget(D);
-			Rewriter_.TransformExecutableDirectiveOfTeams(D);
+			Rewriter_.RewriteTargetTeamsDirective(D);
 
 			return true;
 		}
@@ -508,9 +430,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 *
 			 */
 
-			// FIXME: Order-relevant!!!
-			Rewriter_.TransformExecutableDirectiveOfTeams(D);
-			Rewriter_.TransformExecutableDirectiveOfDistribute(D);
+			Rewriter_.RewriteTeamsDistributeParallelForDirective(D);
 			return true;
 		}
 
@@ -522,10 +442,7 @@ class OMPVisitor : public RecursiveASTVisitor<OMPVisitor>
 			 * clause: any of clauses accepted by the 'target' or 'teams distribute parallel for' directives
 			 *
 			 */
-			Rewriter_.CommentExecutableDirective(D);
-			Rewriter_.TransformExecutableDirectiveOfDistribute(D);
-			Rewriter_.TransformExecutableDirectiveOfTeams(D);
-			Rewriter_.TransformExecutableDirectiveOfTarget(D);
+			Rewriter_.RewriteTargetTeamsDistributeParallelForDirective(D);
 			return true;
 		}
 
@@ -879,10 +796,82 @@ class OMPAction : public ASTFrontendAction {
 		OMPRewriter Rewriter_;
 };
 
+class CompounderVisitor : public RecursiveASTVisitor<CompounderVisitor>
+{
+	public:
+		CompounderVisitor(CompilerInstance &CI, OMPRewriter &Rewriter) : CI_(CI), Rewriter_(Rewriter) {}
+
+
+		bool shouldTraversePostOrder() {
+			return true;
+		}
+
+		bool VisitOMPExecutableDirective(OMPExecutableDirective *D) {
+			Stmt *Body = D->getInnermostCapturedStmt()->getCapturedStmt();
+
+			if (!isa<CompoundStmt>(Body)) {
+				Rewriter_.InsertText(Body->getBeginLoc(), "{\n");
+				Rewriter_.InsertText(Body->getEndLoc(), "\n}\n");
+				return false;
+			}
+			return true;
+		}
+
+	private:
+		CompilerInstance &CI_;
+		OMPRewriter &Rewriter_;
+};
+
+class CompounderConsumer : public ASTConsumer
+{
+	public:
+		CompounderConsumer(CompilerInstance &CI, OMPRewriter &RW)
+			: Visitor(CI, RW) {}
+
+		virtual bool HandleTopLevelDecl(DeclGroupRef DR) override {
+			do {
+				for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b) {
+					// Traverse the declaration using our AST visitor.
+					if (!Visitor.TraverseDecl(*b))
+						continue;
+				}
+				break;
+			} while (true);
+
+			return true;
+		}
+
+	private:
+		CompounderVisitor Visitor;
+};
+
+class CompounderAction : public ASTFrontendAction {
+	public:
+		virtual bool BeginSourceFileAction(CompilerInstance &CI) {
+			Rewriter_.Initialize(CI.getSourceManager(), CI.getLangOpts());
+			return true;
+		}
+
+		virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
+				CompilerInstance &CI, StringRef InFile) {
+			return std::unique_ptr<clang::ASTConsumer>(new OMPConsumer(CI, Rewriter_));
+		}
+
+		virtual void EndSourceFileAction() {
+			Rewriter_.Finalize();
+		}
+
+	private:
+		OMPRewriter Rewriter_;
+};
+
+
+
 int main(int argc, char **argv)
 {
 	// FIXME: Stack overflow?
 	ArrayRef<const char *>Args(&argv[0], &argv[argc]);
+
 	CompilerInstance CI;
 	// 0. Initialization
 
@@ -900,34 +889,25 @@ int main(int argc, char **argv)
 	CI.createFileManager();
 	CI.createSourceManager(CI.getFileManager());
 
+//	// 4. Create Preprocessor
+//	CI.createPreprocessor(TU_Complete);
+//
+//	// 5. Create ASTContext
+//	CI.createASTContext();
+
+	//ParseAST(CI.getPreprocessor(), CI.getASTContext());
+
 	// OpenMP Options
 	//	LangOptions &LangOpts = CI.getLangOpts();
 	//	LangOpts.OpenMP = 1;
 	//	LangOpts.OpenMPUseTLS = 1;
 
-	// DEBUG
-	//	HeaderSearchOptions HeaderSearchOpts = CI.getHeaderSearchOpts();
-	//	llvm::outs() << HeaderSearchOpts.Sysroot << "\n";
-	//	for (auto e : HeaderSearchOpts.UserEntries) {
-	//		llvm::outs() << "\t" << e.Path << "\n";
-	//	}
-	//	for (auto p : HeaderSearchOpts.SystemHeaderPrefixes) {
-	//		llvm::outs() << "\t" << p.Prefix << "\n";
-	//	}
-	//	llvm::outs() << HeaderSearchOpts.ResourceDir << "\n";
-
-	//	llvm::outs() << LOpts.OpenMP            << "\n";
-	//	llvm::outs() << LOpts.OpenMPSimd        << "\n";
-	//	llvm::outs() << LOpts.OpenMPUseTLS      << "\n";
-	//	llvm::outs() << LOpts.OpenMPIsDevice    << "\n";
-	//	llvm::outs() << LOpts.OpenMPCUDAMode    << "\n";
-	//	llvm::outs() << LOpts.OpenMPCUDAForceFullRuntime << "\n";
-	//	llvm::outs() << LOpts.OpenMPHostCXXExceptions    << "\n";
-
-
 	// 4. Execute Action
-	OMPAction Act;
+	CompounderAction Act;
 	CI.ExecuteAction(Act);
+//	OMPAction Act;
+//	CI.ExecuteAction(Act);
 	return 0;
 }
+
 

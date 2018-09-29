@@ -100,6 +100,123 @@ class OMPRewriter {
 	bool overwriteChangedFiles () {
 		return Rewriter_.overwriteChangedFiles();
 	}
+	/* Public Interfaces */
+	void RewriteTargetDataDirective(OMPTargetDataDirective *D) {
+		CommentDirective(D);
+		TransformTargetDataDirective(D);
+	}
+
+	void RewriteTargetDirective(OMPTargetDirective *D) {
+		CommentDirective(D);
+		TransformTargetDirective(D);
+	}
+
+	void RewriteTeamsDirective(OMPTeamsDirective *D) {
+		CommentDirective(D);
+		TransformTeamsDirective(D);
+	}
+
+	void RewriteDistributeDirective(OMPDistributeDirective *D) {
+		CommentDirective(D);
+		TransformDistributeDirective(D);
+	}
+
+	void RewriteTargetTeamsDirective(OMPTargetTeamsDirective *D) {
+		CommentDirective(D);
+		TransformTargetDirective(D);
+		TransformTeamsDirective(D);
+	}
+
+	void RewriteTargetTeamsDistributeDirective(OMPTargetTeamsDistributeDirective *D) {
+		CommentDirective(D);
+		TransformTargetDirective(D);
+		TransformTeamsDirective(D);
+		TransformDistributeDirective(D);
+	}
+
+	void RewriteTeamsDistributeParallelForDirective(OMPTeamsDistributeParallelForDirective *D) {
+		CommentDirective(D);
+		TransformTeamsDirective(D);
+		TransformDistributeParallelForDirective(D);
+	}
+
+	void RewriteDistributeParallelForDirective(OMPDistributeParallelForDirective *D) {
+		CommentDirective(D);
+		TransformDistributeParallelForDirective(D);
+	}
+
+	void RewriteTargetTeamsDistributeParallelForDirective(OMPTargetTeamsDistributeParallelForDirective *D) {
+		CommentDirective(D);
+		TransformTargetDirective(D);
+		TransformTeamsDirective(D);
+		TransformDistributeParallelForDirective(D);
+	}
+
+	void Initialize(SourceManager &SrcMgr, LangOptions &LOpts) {
+		StringRef HostFilePrefix = "__o2c_host";
+		StringRef HostFileSuffix = "cu";
+		StringRef KernelFilePrefix = "__o2c_kernel";
+		StringRef KernelFileSuffix = "h";
+
+		// Make Temp file
+		std::error_code err;
+		SmallString<32> ResultPath;
+		//		err = llvm::sys::fs::createTemporaryFile(HostFilePrefix,
+		//			   	HostFileSuffix, ResultPath);
+		//		const FileEntry *HostFE = SrcMgr.getFileManager().getFile(ResultPath.str(), /*OpenFile=*/false);
+		err = llvm::sys::fs::createTemporaryFile(KernelFilePrefix,
+				KernelFileSuffix, ResultPath);
+		const FileEntry *KernelFE = SrcMgr.getFileManager().getFile(ResultPath.str(), /*OpenFile=*/false);
+
+		//		assert(HostFE && "Cannot Create a file");
+		assert(KernelFE && "Cannot Create a file");
+
+
+		// Copy input File To HostFile
+		//		StringRef InputFileName = SrcMgr.getFileEntryForID(SrcMgr.getMainFileID())->getName();
+		//		llvm::sys::fs::copy_file(InputFileName, HostFE->getName());
+
+
+		//		HostFileID_ = SrcMgr.getOrCreateFileID(HostFE, SrcMgr::C_User);
+		HostFileID_ = SrcMgr.getMainFileID();
+		KernelFileID_ = SrcMgr.getOrCreateFileID(KernelFE, SrcMgr::C_User);
+		//		SrcMgr.setMainFileID(HostFileID_);
+
+		assert(HostFileID_.isValid() && "Main file is not valid");
+		assert(KernelFileID_.isValid() && "Temporary file is not valid");
+
+		Rewriter_.setSourceMgr(SrcMgr, LOpts);
+
+		StringRef KernelFileName = KernelFE->getName();
+		SourceLocation StartLoc = SrcMgr.getLocForStartOfFile(HostFileID_);
+		InsertTextAfter(StartLoc, "#include \"");
+		InsertTextAfter(StartLoc, KernelFileName);
+		InsertTextAfter(StartLoc, "\"\n");
+
+		SourceLocation TestLoc = SrcMgr.getLocForStartOfFile(KernelFileID_);
+		InsertTextAfter(TestLoc, "#include <cuda_runtime.h>\n");
+	}
+
+	void Finalize() {
+		//		std::error_code EC;
+		//		llvm::raw_fd_ostream MainFileStream(Rewriter_.getSourceMgr().getFileEntryForID(HostFileID_)->getName(), EC);
+		//		assert(!EC && "cannot open file ostream");
+		//		llvm::raw_fd_ostream KernelFileStream(Rewriter_.getSourceMgr().getFileEntryForID(KernelFileID_)->getName(), EC);
+		//		assert(!EC && "cannot open file ostream");
+
+		const RewriteBuffer *HostBuf = Rewriter_.getRewriteBufferFor(HostFileID_);
+		const RewriteBuffer *KernelBuf = Rewriter_.getRewriteBufferFor(KernelFileID_);
+		assert(HostBuf && "HostBuf is Null");
+		assert(KernelBuf && "KernelBuf is Null");
+
+		//		HostBuf->write(MainFileStream);
+		//		KernelBuf->write(KernelFileStream);
+
+		HostBuf->write(llvm::outs());
+		KernelBuf->write(llvm::outs());
+	}
+
+	private:
 
 	unsigned getLocationOffsetAndFileID(SourceLocation Loc, FileID &FID) {
 		assert(Loc.isValid() && "Invalid location");
@@ -129,7 +246,7 @@ class OMPRewriter {
 		return SourceRange(BeginLoc, EndLoc);
 	}
 
-	void CommentExecutableDirective(OMPExecutableDirective *D) {
+	void CommentDirective(OMPExecutableDirective *D) {
 		// comment out pragma
 		SourceManager &SrcMgr = Rewriter_.getSourceMgr();
 		FileID FID = SrcMgr.getFileID(D->getBeginLoc());
@@ -142,8 +259,8 @@ class OMPRewriter {
 	}
 
 
-	void TransformExecutableDirectiveOfDistribute(OMPExecutableDirective *D) {
-		assert(isa<OMPLoopDirective>(D) && "TransformExecutableDirectiveOfDistribute Failed");
+	void TransformDistributeParallelForDirective(OMPExecutableDirective *D) {
+		assert(isa<OMPLoopDirective>(D) && "TransformDistributeDirective Failed");
 
 		CapturedStmt *CaptStmt = D->getInnermostCapturedStmt();
 		CapturedDecl *CaptDecl = CaptStmt->getCapturedDecl();
@@ -157,47 +274,166 @@ class OMPRewriter {
 		Rewriter::RewriteOptions removeOpts;
 		removeOpts.IncludeInsertsAtBeginOfRange = false;
 		removeOpts.IncludeInsertsAtEndOfRange = false;
+		SourceRange CandidateRange = SourceRange(Body->getBeginLoc(), Body->getEndLoc());
+		RemoveText(CandidateRange, removeOpts);
 
 
 
-		
+		//StringRef Kernel = Rewriter_.getRangeSize(CandidateRange, removeOpts);
 		SourceLocation KernelStartLoc = Rewriter_.getSourceMgr().getLocForStartOfFile(KernelFileID_);
-		RemoveText(SourceRange(Body->getBeginLoc(), Body->getEndLoc()), removeOpts);
 		// FIXME
+
 		// Insert Kernel Call;
-		InsertTextAfter(Body->getBeginLoc(), "KernelCall<<< 1, 2, 3, 4 >>>();\n");
-		// Insert Kernel function;
-		InsertTextAfter(KernelStartLoc, "KernelCall() {}");
+		std::string CallStr;
+		llvm::raw_string_ostream CallSStream(CallStr);
+		CallSStream << "{\n";
+		int pos = 0;
+		for (auto capt : CaptStmt->capture_inits()) {
+			CallSStream << "SetArgument(&";
+			capt->printPretty(CallSStream, nullptr, Policy);
+			CallSStream << ", " << pos;
+			CallSStream << ");\n";
+			pos++;
+		}
+		CallSStream << "LaunchKernel();\n";
+		CallSStream << "}\n";
+
+		InsertTextAfter(Body->getBeginLoc(), CallSStream.str());
 
 
 
-		//			OMPCollapseClause *CollapseClause = getSingleClause<OMPCollapseClause>();
-		//			Expr *NumForLoops;
-		//			if (CollapseClause == nullptr) {
-		//			} else {
-		//				if ((NumForLoops = CollapseClause->getNumForLoops()) == nullptr) {
-		//				} else {
-		//				}
-		//			}
-		//
-		//			OMPDistScheduleClause *ScheduleClause = getSingleClause<OMPDistScheduleClause>();
-		//
-		//			OpenMPDistScheduleClauseKind ScheduleKind;
-		//			Expr *ChunkSize;
-		//			if (ScheduleClause == nullptr) {
-		//				// Default Scheduling is implementation specific.
-		//				// We choose here 'static' scheduling as default.
-		//				ScheduleKind = OMPC_DIST_SCHEDULE_static;
-		//			} else {
-		//				ScheduleKind = ScheduleClause->getDistScheduleKind();
-		//				if ((ChunkSize = ScheduleClause->getChunkSize()) == nullptr) {
-		//					// Approximately equal in size.
-		//					ChunkSize = 
-		//				}
-		//			}
+
+		// Insert Kernel function
+		std::string KernelStr;
+		llvm::raw_string_ostream KernelSStream(KernelStr);
+		KernelSStream << "__global__ void KernelName(";
+
+		unsigned count = 0;
+		for (auto capt : CaptStmt->captures()) {
+			VarDecl *decl = capt.getCapturedVar();
+			KernelSStream << decl->getType().getAsString();
+			KernelSStream << " ";
+			KernelSStream << decl->getName();
+			if (count < CaptStmt->capture_size()-1)
+				KernelSStream << ", ";
+			count ++;
+		}
+		KernelSStream << ")\n";
+		KernelSStream << "{\n";
+		KernelSStream << "/*\n";
+		LoopDirective->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "\n*/\n";
+
+
+		KernelSStream << "int __o2c_gid = blockDim.x * blockIdx.x + threadIdx.x;\n";
+		KernelSStream << "int __o2c_gsize = blockDim.x * gridDim.x;\n";
+
+		//FIXME: Type Infomation Must be Added!!!
+		for (auto e : LoopDirective->inits()) {
+			e->printPretty(KernelSStream, nullptr, Policy);
+			KernelSStream << ";\n";
+		}
+		KernelSStream << "for (";
+		KernelSStream << "int __o2c_i = __o2c_gid; \n";
+		KernelSStream << "__o2c_i <= ";
+		LoopDirective->getLastIteration()->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "; \n";
+		KernelSStream << "__o2c_i += __o2c_gsize) {\n";
+		for (auto e : LoopDirective->updates()) {
+			e->printPretty(KernelSStream, nullptr, Policy);
+			KernelSStream << ";\n";
+		}
+		LoopDirective->getBody()->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "\n}\n"; // End of Forloop
+
+		KernelSStream << "\n}\n"; // End of Kernel
+		InsertTextAfter(KernelStartLoc, KernelSStream.str());
 	}
 
-	void TransformExecutableDirectiveOfTeams (OMPExecutableDirective *D) {
+	void TransformDistributeDirective(OMPExecutableDirective *D) {
+		assert(isa<OMPLoopDirective>(D) && "TransformDistributeDirective Failed");
+
+		CapturedStmt *CaptStmt = D->getInnermostCapturedStmt();
+		CapturedDecl *CaptDecl = CaptStmt->getCapturedDecl();
+		PrintingPolicy Policy(Rewriter_.getLangOpts());
+		Stmt *Body = CaptDecl->getBody();
+		SourceRange PragmaRange = getPragmaRange(D);
+		SourceRange WholeRange = D->getInnermostCapturedStmt()->getCapturedStmt()->getSourceRange();
+
+		OMPLoopDirective *LoopDirective = dyn_cast<OMPLoopDirective>(D);
+
+		Rewriter::RewriteOptions removeOpts;
+		removeOpts.IncludeInsertsAtBeginOfRange = false;
+		removeOpts.IncludeInsertsAtEndOfRange = false;
+		SourceRange CandidateRange = SourceRange(Body->getBeginLoc(), Body->getEndLoc());
+		RemoveText(CandidateRange, removeOpts);
+
+
+
+		//StringRef Kernel = Rewriter_.getRangeSize(CandidateRange, removeOpts);
+		SourceLocation KernelStartLoc = Rewriter_.getSourceMgr().getLocForStartOfFile(KernelFileID_);
+		// FIXME
+
+		// Insert Kernel Call;
+		std::string CallStr;
+		llvm::raw_string_ostream CallSStream(CallStr);
+		CallSStream << "{\n";
+		for (auto capt : CaptStmt->capture_inits()) {
+			//			VarDecl *decl = capt.getCapturedVar();
+			CallSStream << "SetArgument(&";
+			capt->printPretty(CallSStream, nullptr, Policy);
+			//			decl->print(CallSStream);
+			CallSStream << ");\n";
+		}
+		CallSStream << "LaunchKernel();\n";
+		CallSStream << "}\n";
+
+		InsertTextAfter(Body->getBeginLoc(), CallSStream.str());
+
+
+
+
+		// Insert Kernel function
+		std::string KernelStr;
+		llvm::raw_string_ostream KernelSStream(KernelStr);
+		KernelSStream << "__global__ void KernelName(";
+
+		unsigned count = 0;
+		for (auto capt : CaptStmt->captures()) {
+			VarDecl *decl = capt.getCapturedVar();
+			KernelSStream << decl->getType().getAsString();
+			KernelSStream << " ";
+			KernelSStream << decl->getName();
+			if (count < CaptStmt->capture_size()-1)
+				KernelSStream << ", ";
+			count ++;
+		}
+		KernelSStream << ")\n";
+		KernelSStream << "{\n";
+		KernelSStream << "/*\n";
+		LoopDirective->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "\n*/\n";
+
+
+		KernelSStream << "int __o2c_lid = blockDim.x * blockIdx.x + threadIdx.x;\n";
+		KernelSStream << "int __o2c_lsize = blockDim.x;\n";
+		KernelSStream << "for (";
+		KernelSStream << "int __o2c_i = __o2c_lid; \n";
+		KernelSStream << "__o2c_i <= ";
+		LoopDirective->getLastIteration()->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "; \n";
+		KernelSStream << "__o2c_i += __o2c_lsize) {\n";
+		for (auto e : LoopDirective->updates()) {
+			e->printPretty(KernelSStream, nullptr, Policy); // TODO: Macro Reduction?
+			KernelSStream << ";\n";
+		}
+		LoopDirective->getBody()->printPretty(KernelSStream, nullptr, Policy);
+		KernelSStream << "\n}\n"; // End of ForLoop
+		KernelSStream << "\n}\n"; // End of Kernel
+		InsertTextAfter(KernelStartLoc, KernelSStream.str());
+	}
+
+	void TransformTeamsDirective (OMPExecutableDirective *D) {
 		CapturedStmt *CaptStmt = D->getInnermostCapturedStmt();
 		CapturedDecl *CaptDecl = CaptStmt->getCapturedDecl();
 		PrintingPolicy Policy(Rewriter_.getLangOpts());
@@ -207,20 +443,8 @@ class OMPRewriter {
 
 		std::string BStr;
 		llvm::raw_string_ostream BeginStr(BStr);
-		/* 
-		 * Function Prototype
-		 */
 
 		BeginStr << "\n{\n";
-		/* 
-		 * Implicit Params
-		 */
-		for (auto *param : CaptDecl->parameters()) {
-			BeginStr << "//";
-			param->print(BeginStr, Policy);
-			BeginStr << "\n";
-		}
-		BeginStr << "\n";
 
 		/*
 		 * num_teams & thread_limit clauses
@@ -276,7 +500,7 @@ class OMPRewriter {
 		InsertBeforeToken(WholeRange.getEnd(), EndStr.str());
 	}
 
-	void TransformExecutableDirectiveOfTarget (OMPExecutableDirective *D) {
+	void TransformTargetDataDirective (OMPTargetDataDirective *D) {
 		CapturedStmt *CaptStmt = D->getInnermostCapturedStmt();
 		CapturedDecl *CaptDecl = CaptStmt->getCapturedDecl();
 		PrintingPolicy Policy(Rewriter_.getLangOpts());
@@ -284,71 +508,219 @@ class OMPRewriter {
 		SourceRange PragmaRange = getPragmaRange(D);
 		SourceRange WholeRange = D->getInnermostCapturedStmt()->getCapturedStmt()->getSourceRange();
 
-		std::string BStr;
-		llvm::raw_string_ostream BeginStr(BStr);
-
-		/* 
-		 * Function Prototype
-		 */
-		BeginStr << "\n{\n";
-		/* 
-		 * Implicit Params
-		 */
-		for (auto *param : CaptDecl->parameters()) {
-			BeginStr << "//";
-			param->print(BeginStr, Policy);
-			BeginStr << "\n";
-		}
-		BeginStr << "\n";
 
 		/*
-		 * Mapping variables
+		 * Makeup environment
 		 */
-		BeginStr << "\n// Initial Memory Management\n";
+		std::string MakeupStr;
+		llvm::raw_string_ostream MakeupSStream(MakeupStr);
+
+		MakeupSStream << "\n{\n";
+		MakeupSStream << "//  Make up data environment\n";
+
+		/*
+		 * Makeup Environment
+		 */
 		for (auto *clause: D->getClausesOfKind<OMPMapClause>()) {
 			OpenMPMapClauseKind kind = clause->getMapType();
 			bool copy = (kind == OMPC_MAP_to) || (kind == OMPC_MAP_tofrom);
 			for (auto comp_pair : clause->component_lists()) {
 				const ValueDecl* d = comp_pair.first;
 				for (auto e : comp_pair.second) {
-					std::string created_name_str;
-					llvm::raw_string_ostream created_name(created_name_str);
-					created_name << "created_" << d->getName();
-					Expr *expr = e.getAssociatedExpression();
-					BeginStr << "int " << created_name.str() << ";\n";
-					BeginStr << d->getType().getAsString() << " m_";
-					BeginStr << d->getNameAsString() << " = ";
-					BeginStr << "CreateOrGetBuffer(";
+					std::string CreatedNameStr;
+					std::string BufferNameStr;
+					llvm::raw_string_ostream CreatedNameSStream(CreatedNameStr);
+					llvm::raw_string_ostream BufferNameSStream(BufferNameStr);
 
+					CreatedNameSStream << "created_" << d->getName();
+					BufferNameSStream << "__o2c_device_" << d->getNameAsString();
+
+					MakeupSStream << "int" << " " << CreatedNameSStream.str() << ";\n";
+					MakeupSStream << d->getType().getAsString() << " " << BufferNameSStream.str();
+					MakeupSStream << " = ";
+					MakeupSStream << "CreateOrGetBuffer(";
+
+					Expr *expr = e.getAssociatedExpression();
+					if (OMPArraySectionExpr *section = dyn_cast<OMPArraySectionExpr>(expr)) {
+						std::string AddressStr;
+						llvm::raw_string_ostream AddressSStream(AddressStr);
+						section->getBase()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "[";
+						section->getLowerBound()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "]";
+
+						MakeupSStream << "&";
+						MakeupSStream << AddressSStream.str();
+						MakeupSStream << ", ";
+						section->getLength()->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream << " * sizeof(" << AddressSStream.str() << "), ";
+						MakeupSStream << (copy ? "1" : "0");
+						MakeupSStream << ", ";
+						MakeupSStream << "&" << CreatedNameSStream.str();
+						MakeupSStream << ");";
+						MakeupSStream << "\n";
+						break;
+					} else if (DeclRefExpr *var = dyn_cast<DeclRefExpr>(expr)) {
+						MakeupSStream << "&";
+						var->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream << ", sizeof(";
+						var->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream <<"), " << (copy ? "1" : "0");
+						MakeupSStream <<", " << CreatedNameSStream.str();
+						MakeupSStream << ");";
+						MakeupSStream << "\n";
+					} else {
+						llvm_unreachable("map clause contains only ArraySection or a scalar value");
+					}
+
+				}
+			}
+		}
+
+		MakeupSStream << "\n";
+		InsertTextBefore(PragmaRange.getEnd(), MakeupSStream.str());
+
+		/*
+		 * Cleanup Environment
+		 */
+		std::string CleanupStr;
+		llvm::raw_string_ostream CleanupSStream(CleanupStr);
+		CleanupSStream << "\n// Memory cleanup\n";
+		for (auto *clause: D->getClausesOfKind<OMPMapClause>()) {
+			OpenMPMapClauseKind kind = clause->getMapType();
+			bool copy = (kind == OMPC_MAP_to) || (kind == OMPC_MAP_tofrom);
+			for (auto comp_pair : clause->component_lists()) {
+				const ValueDecl* d = comp_pair.first;
+				for (auto e : comp_pair.second) {
+					std::string CreatedNameStr;
+					std::string BufferNameStr;
+					llvm::raw_string_ostream CreatedNameSStream(CreatedNameStr);
+					llvm::raw_string_ostream BufferNameSStream(BufferNameStr);
+
+					CreatedNameSStream << "created_" << d->getName();
+					BufferNameSStream << "__o2c_device_" << d->getNameAsString();
+
+					CleanupSStream << "DestroyBuffer(";
+					Expr *expr = e.getAssociatedExpression();
+					if (OMPArraySectionExpr *section = dyn_cast<OMPArraySectionExpr>(expr)) {
+						std::string AddressStr;
+						llvm::raw_string_ostream AddressSStream(AddressStr);
+						section->getBase()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "[";
+						section->getLowerBound()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "]";
+
+						CleanupSStream << "&";
+						CleanupSStream << BufferNameSStream.str();
+						CleanupSStream << ", ";
+						section->getLength()->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream << " * sizeof(" << AddressSStream.str() << "), ";
+						CleanupSStream << (copy ? "1" : "0");
+						CleanupSStream << ", ";
+						CleanupSStream << CreatedNameSStream.str();
+						CleanupSStream << ");";
+						CleanupSStream << "\n";
+					} else if (DeclRefExpr *var = dyn_cast<DeclRefExpr>(expr)) {
+						CleanupSStream << "&";
+						var->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream << ", sizeof(";
+						var->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream <<"), " << (copy ? "1" : "0");
+						CleanupSStream <<", " << CreatedNameSStream.str();
+						CleanupSStream << ");";
+						CleanupSStream << "\n";
+					} else {
+						llvm_unreachable("map clause contains only ArraySection or a value");
+					}
+				}
+			}
+		}
+		CleanupSStream << "\n}\n";
+		InsertBeforeToken(WholeRange.getEnd(), CleanupSStream.str());
+	}
+
+	void TransformTargetDirective (OMPExecutableDirective *D) {
+		CapturedStmt *CaptStmt = D->getInnermostCapturedStmt();
+		CapturedDecl *CaptDecl = CaptStmt->getCapturedDecl();
+		PrintingPolicy Policy(Rewriter_.getLangOpts());
+		Stmt *Body = CaptDecl->getBody();
+		SourceRange PragmaRange = getPragmaRange(D);
+		SourceRange WholeRange = D->getInnermostCapturedStmt()->getCapturedStmt()->getSourceRange();
+
+
+		/*
+		 * Makeup environment
+		 */
+		std::string MakeupStr;
+		llvm::raw_string_ostream MakeupSStream(MakeupStr);
+
+		MakeupSStream << "\n{\n";
+		MakeupSStream << "//  Make up data environment\n";
+
+		// If a defaultmap(tofrom:scalar) is not present,
+		// scalar is not mapped, but just firstprivated
+		// Otherwise, a scalar variable is treated
+		// as if map(tofrom: ...)
+		// Any non-scalar variable is treated as if map(tofrom: ....)
+		if (D->getSingleClause<OMPDefaultmapClause>()) {
+			for (auto capt : CaptStmt->captures()) {
+				VarDecl *decl = capt.getCapturedVar();
+				if (decl->getType().getTypePtr()->isScalarType()) {
+					decl->print(MakeupSStream);
+					MakeupSStream <<";\n";
+				}
+			}
+		}
+		MakeupSStream << "\n// Initial Memory Management\n";
+		for (auto *clause: D->getClausesOfKind<OMPMapClause>()) {
+			OpenMPMapClauseKind kind = clause->getMapType();
+			bool copy = (kind == OMPC_MAP_to) || (kind == OMPC_MAP_tofrom);
+			for (auto comp_pair : clause->component_lists()) {
+				const ValueDecl* d = comp_pair.first;
+				for (auto e : comp_pair.second) {
+					std::string CreatedNameStr;
+					std::string BufferNameStr;
+					llvm::raw_string_ostream CreatedNameSStream(CreatedNameStr);
+					llvm::raw_string_ostream BufferNameSStream(BufferNameStr);
+
+					CreatedNameSStream << "created_" << d->getName();
+					BufferNameSStream << "__o2c_device_" << d->getNameAsString();
+
+					MakeupSStream << "int" << " " << CreatedNameSStream.str() << ";\n";
+					MakeupSStream << d->getType().getAsString() << " " << BufferNameSStream.str();
+					MakeupSStream << " = ";
+					MakeupSStream << "CreateOrGetBuffer(";
+
+					Expr *expr = e.getAssociatedExpression();
 					if (OMPArraySectionExpr *section = dyn_cast<OMPArraySectionExpr>(expr)) {
 						// FIXME: How about pointers?
-						std::string startAddress_str;
-						llvm::raw_string_ostream startAddress(startAddress_str);
-						section->getBase()->printPretty(startAddress, nullptr, Policy);
-						startAddress << "[";
-						section->getLowerBound()->printPretty(startAddress, nullptr, Policy);
-						startAddress << "]";
+						std::string AddressStr;
+						llvm::raw_string_ostream AddressSStream(AddressStr);
+						section->getBase()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "[";
+						section->getLowerBound()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "]";
 
-						BeginStr << "&";
-						BeginStr << startAddress.str();
-						BeginStr << ", ";
-						section->getLength()->printPretty(BeginStr, nullptr, Policy);
-						BeginStr << " * sizeof(" << startAddress.str() << "), ";
-						BeginStr << (copy ? "1" : "0");
-						BeginStr << ", ";
-						BeginStr << "&" << created_name.str();
-						BeginStr << ");";
-						BeginStr << "\n";
+						MakeupSStream << "&";
+						MakeupSStream << AddressSStream.str();
+						MakeupSStream << ", ";
+						section->getLength()->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream << " * sizeof(" << AddressSStream.str() << "), ";
+						MakeupSStream << (copy ? "1" : "0");
+						MakeupSStream << ", ";
+						MakeupSStream << "&" << CreatedNameSStream.str();
+						MakeupSStream << ");";
+						MakeupSStream << "\n";
 						break;
 					} else if (DeclRefExpr *var = dyn_cast<DeclRefExpr>(expr)) {
-						BeginStr << "&";
-						var->printPretty(BeginStr, nullptr, Policy);
-						BeginStr << ", sizeof(";
-						var->printPretty(BeginStr, nullptr, Policy);
-						BeginStr <<"), " << (copy ? "1" : "0");
-						BeginStr <<", " << created_name.str();
-						BeginStr << ");";
-						BeginStr << "\n";
+						MakeupSStream << "&";
+						var->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream << ", sizeof(";
+						var->printPretty(MakeupSStream, nullptr, Policy);
+						MakeupSStream <<"), " << (copy ? "1" : "0");
+						MakeupSStream <<", " << CreatedNameSStream.str();
+						MakeupSStream << ");";
+						MakeupSStream << "\n";
 					} else {
 						llvm_unreachable("map clause contains only ArraySection or a value");
 					}
@@ -357,124 +729,73 @@ class OMPRewriter {
 			}
 		}
 
-		BeginStr << "\n";
-		InsertTextBefore(PragmaRange.getEnd(), BeginStr.str());
+		MakeupSStream << "\n";
+		InsertTextBefore(PragmaRange.getEnd(), MakeupSStream.str());
+
+
+
 		/*
-		 * Body
+ 		 * Cleanup environment
 		 */
-		std::string EStr;
-		llvm::raw_string_ostream EndStr(EStr);
-		EndStr << "\n// Memory cleanup\n";
+
+		std::string CleanupStr;
+		llvm::raw_string_ostream CleanupSStream(CleanupStr);
+		CleanupSStream << "\n// Memory cleanup\n";
 		for (auto *clause: D->getClausesOfKind<OMPMapClause>()) {
 			OpenMPMapClauseKind kind = clause->getMapType();
 			bool copy = (kind == OMPC_MAP_to) || (kind == OMPC_MAP_tofrom);
 			for (auto comp_pair : clause->component_lists()) {
 				const ValueDecl* d = comp_pair.first;
 				for (auto e : comp_pair.second) {
-					std::string created_name_str;
-					llvm::raw_string_ostream created_name(created_name_str);
-					created_name << "created_" << d->getName();
+					std::string CreatedNameStr;
+					std::string BufferNameStr;
+					llvm::raw_string_ostream CreatedNameSStream(CreatedNameStr);
+					llvm::raw_string_ostream BufferNameSStream(BufferNameStr);
+
+					CreatedNameSStream << "created_" << d->getName();
+					BufferNameSStream << "__o2c_device_" << d->getNameAsString();
+
+					CleanupSStream << "DestroyBuffer(";
 					Expr *expr = e.getAssociatedExpression();
-					EndStr << "DestroyBuffer(";
-
 					if (OMPArraySectionExpr *section = dyn_cast<OMPArraySectionExpr>(expr)) {
-						std::string startAddress_str;
-						llvm::raw_string_ostream startAddress(startAddress_str);
-						section->getBase()->printPretty(startAddress, nullptr, Policy);
-						startAddress << "[";
-						section->getLowerBound()->printPretty(startAddress, nullptr, Policy);
-						startAddress << "]";
+						std::string AddressStr;
+						llvm::raw_string_ostream AddressSStream(AddressStr);
+						section->getBase()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "[";
+						section->getLowerBound()->printPretty(AddressSStream, nullptr, Policy);
+						AddressSStream << "]";
 
-						EndStr << "&";
-						EndStr << ", ";
-						section->getLength()->printPretty(EndStr, nullptr, Policy);
-						EndStr << " * sizeof(" << startAddress.str() << "), ";
-						EndStr << (copy ? "1" : "0");
-						EndStr << ", ";
-						EndStr << created_name.str();
-						EndStr << ");";
-						EndStr << "\n";
+						CleanupSStream << "&";
+						CleanupSStream << BufferNameSStream.str();
+						CleanupSStream << ", ";
+						section->getLength()->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream << " * sizeof(" << AddressSStream.str() << "), ";
+						CleanupSStream << (copy ? "1" : "0");
+						CleanupSStream << ", ";
+						CleanupSStream << CreatedNameSStream.str();
+						CleanupSStream << ");";
+						CleanupSStream << "\n";
 						break;
 					} else if (DeclRefExpr *var = dyn_cast<DeclRefExpr>(expr)) {
-						EndStr << "&";
-						var->printPretty(EndStr, nullptr, Policy);
-						EndStr << ", sizeof(";
-						var->printPretty(EndStr, nullptr, Policy);
-						EndStr <<"), " << (copy ? "1" : "0");
-						EndStr <<", " << created_name.str();
-						EndStr << ");";
-						EndStr << "\n";
+						CleanupSStream << "&";
+						var->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream << ", sizeof(";
+						var->printPretty(CleanupSStream, nullptr, Policy);
+						CleanupSStream <<"), " << (copy ? "1" : "0");
+						CleanupSStream <<", " << CreatedNameSStream.str();
+						CleanupSStream << ");";
+						CleanupSStream << "\n";
 					} else {
 						llvm_unreachable("map clause contains only ArraySection or a value");
 					}
 				}
 			}
 		}
-		EndStr << "\n}\n";
-		InsertBeforeToken(WholeRange.getEnd(), EndStr.str());
+		CleanupSStream << "\n}\n";
+		InsertBeforeToken(WholeRange.getEnd(), CleanupSStream.str());
 	}
 
-
-	void RewriteTargetTeamsDistributeDirective(OMPTargetTeamsDistributeDirective *D) {
-		CommentExecutableDirective(D);
-		TransformExecutableDirectiveOfTarget(D);
-		TransformExecutableDirectiveOfTeams(D);
-		TransformExecutableDirectiveOfDistribute(D);
-	}
-
-	void Initialize(SourceManager &SrcMgr, LangOptions &LOpts) {
-		Rewriter_.setSourceMgr(SrcMgr, LOpts);
-
-		StringRef TempFilePrefix = "__omp_tmp";
-		StringRef TempFileSuffix = "h";
-
-		// Make Temp file
-		SmallString<32> ResultPath;
-		std::error_code err = llvm::sys::fs::createTemporaryFile(TempFilePrefix, TempFileSuffix, ResultPath);
-		const FileEntry *FE = SrcMgr.getFileManager().getFile(ResultPath.str(), /*OpenFile=*/false);
-
-		assert(FE && "Cannot Create a file");
-
-		StringRef FileName = FE->getName();
-
-		MainFileID_ = SrcMgr.getMainFileID();
-		KernelFileID_ = SrcMgr.getOrCreateFileID(FE, SrcMgr::C_User);
-
-		assert(MainFileID_.isValid() && "Main file is not valid");
-		assert(KernelFileID_.isValid() && "Temporary file is not valid");
-
-		// This is necessary to generate nonempty buffer
-		Rewriter_.getEditBuffer(MainFileID_);
-		Rewriter_.getEditBuffer(KernelFileID_);
-
-
-		SourceLocation StartLoc = SrcMgr.getLocForStartOfFile(MainFileID_);
-		InsertTextAfter(StartLoc, "#include <cuda_runtime.h>\n");
-		InsertTextAfter(StartLoc, "#include \"");
-		InsertTextAfter(StartLoc, FileName);
-		InsertTextAfter(StartLoc, "\"\n");
-		//SourceLocation TestLoc = SrcMgr.getLocForStartOfFile(KernelFileID_);
-		//InsertTextAfter(TestLoc, "this is a test text\n");
-	}
-
-	void Finalize() {
-		std::error_code EC;
-		llvm::raw_fd_ostream MainFileStream(Rewriter_.getSourceMgr().getFileEntryForID(MainFileID_)->getName(), EC);
-		assert(!EC && "cannot open file ostream");
-		llvm::raw_fd_ostream KernelFileStream(Rewriter_.getSourceMgr().getFileEntryForID(KernelFileID_)->getName(), EC);
-		assert(!EC && "cannot open file ostream");
-
-		const RewriteBuffer *MainBuf = Rewriter_.getRewriteBufferFor(MainFileID_);
-		const RewriteBuffer *KernelBuf = Rewriter_.getRewriteBufferFor(KernelFileID_);
-		assert(MainBuf && "MainBuf is Null");
-		assert(KernelBuf && "KernelBuf is Null");
-
-		MainBuf->write(MainFileStream);
-		KernelBuf->write(KernelFileStream);
-	}
-
-	private:
-	FileID MainFileID_;
+	FileID HostFileID_;
 	FileID KernelFileID_;
 	Rewriter Rewriter_;
 
